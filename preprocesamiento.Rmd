@@ -1,0 +1,271 @@
+---
+title: "Preprocesamiento de Datos."
+author: "Irán Apolinar Peredo Cortes"
+subtitle: 'Facultad de Estadística e Informática UV'
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    df_print: paged
+---
+El presente documento forma parte del Anexo 2 del trabajo recepcional **"Visualización de datos implementada con R y Python"**.
+
+## Preprocesamiento de datos {.tabset .tabset-fade .tabset-pills}
+
+La librería `dplyr` permite la manipulación de bases de datos con funciones `select`, `filter`, `mutate`, `recode`, `case_when` que permite la facil modificación de la base de datos previo la realización de la visualización de datos.
+
+```{r, message=FALSE,comment= "", warning=FALSE}
+#install.packages("tidyverse")
+library(tidyverse)
+```
+
+Utilizaremos la base de datos sobre mortalidad materna la cual muestra datos del banco mundial y de la OMS entre el 2015 y 2020.
+
+```{r, message=FALSE,comment= "", warning=FALSE}
+materna <- read_csv("https://raw.githubusercontent.com/IranNash/visualizacionDeDatos/main/materna.csv")
+head(materna)
+```
+
+
+### Filtros
+
+Una forma simple de realizar el filtro es directamente escribiendo la instrucción `filter`, agregando la base de datos y el filtro elegido. Podemos estar interesados en encontrar solo los valores cuando mortality es mayor a 100.
+```{r}
+filter(materna, mortality > 100)
+```
+
+Una forma más eficiente es utilizar la función `%>%` que permite concatenar instrucciones. 
+
+```{r}
+materna %>% filter(mortality > 100)
+```
+
+Podemos utilizar más de un filtro agregando la instrucción `&` entre filtros. 
+```{r}
+materna %>% filter(mortality > 100 & gini < 40)
+```
+
+Ahora apliquemos tres filtros.
+```{r}
+materna %>% filter(mortality > 100 & gini < 40 & adolescent > 80)
+```
+
+###Seleccionar
+
+Una alternativa muy útil es la función `select` que permite seleccionar solo las variales de interés.
+```{r}
+materna %>% select(mortality, gdpp, adolescent)
+```
+
+###Concatenar instrucciones
+
+Para concatenar instrucciones podemos seguir utilizando el operador `%>%`. en este caso primero hacemos el filtro y luego concatenamos.
+```{r}
+materna %>% filter( mortality > 100 & adolescent > 30) %>% 
+  select(mortality, idh, aborto) 
+```
+
+Otro ejemplo podría ser:
+```{r}
+materna %>% filter( mortality >= 100 & adolescent >= 30) %>% 
+  select(mortality, idh, aborto) %>% filter(aborto == 0)
+
+#En los filtros debe ser >= y nunca =>, para confirmar una igualdad debe ser ==
+```
+
+###Creación de variables
+
+Para crear variables utilizamos `mutate`, en este caso nos interesa crear el logaritmo del `gdpp`. Una vez creada solo seleccionamos las variables de interés (concatenando).
+```{r}
+materna %>% mutate(log_gdpp = log(gdpp)) %>% select(gdpp, log_gdpp)
+```
+
+Otro ejemplo podría ser:
+```{r}
+materna %>% mutate(gini2 = gini/100) %>%  select(gini, gini2)
+```
+
+Al crear una nueva variable podemos segmentar la variable en casos de interés. Esto es muy común, segmentar una variable cuantitativa para crear estratos. En este caso segmentaremos la variale IDH y concatenamos una selección.
+```{r}
+materna %>% mutate(desarrollo = case_when(
+  idh <= 0.33 ~ "Bajo",
+  idh <= 0.66 ~ "Medio",
+  idh > 0.66 ~ "Alto" )) %>% select(idh, desarrollo)
+```
+
+Al mirar el histograma podemos pensar que una forma más eficiente para hacer la segmentación es utilizando cuantiles. 
+```{r}
+hist(materna$idh)
+```
+
+Con `quantile` generamos cuantiles, en este caso nos interesa el primer y tercer cuartil, es decir el 25% y 75% de los datos. 
+```{r}
+quantile(materna$idh)
+```
+
+```{r}
+quantile(materna$idh, probs = 0.25, na.rm = TRUE)
+```
+
+```{r}
+q1 = as.numeric(quantile(materna$idh, probs = 0.25, na.rm = TRUE))
+```
+
+```{r}
+q3 = as.numeric(quantile(materna$idh, probs = 0.75, na.rm = TRUE))
+```
+
+Una vez calculados los cuartiles podemos volver a hacer la segmentación.
+```{r}
+materna %>% mutate(desarrollo = case_when(
+  idh <= q1 ~ "Bajo",
+  idh <= q3 ~ "Medio",
+  idh > q3 ~ "Alto" )) %>% select(idh, desarrollo)
+```
+
+###Recodificacion
+
+La recodificación se realiza con `recode`. Dentro de `mutate` recodificamos la variable, igualamos cada valor de la base de datos a un nuevo valor, en este ejemplo recodificamos la variable `aborto`.
+```{r}
+materna %>% 
+  mutate(aborto2 = recode(aborto, "1" = "Con aborto", "0" = "Sin aborto")) %>%
+  select(aborto, aborto2)
+```
+
+###Manejo de NA
+
+Los NA tiene varios tratamientos de codificación. Primero identifiquemos los NA de alguna variable, en este caso de la variable `gini`.
+```{r}
+is.na(materna$gini)
+```
+
+Como se observa, cuando la opción marca `TRUE` implica que es un valor con NA. Una forma de recodificar la variable es asignando un caracter cada vez que aparezca un NA. Esto se puede realizar con `ifelse` y dentro de la condición se introduce el `is.na()` ya que un requisito para usar `ìfelse` es que el resultado sea una condición. 
+```{r}
+materna %>% select(gini) %>% mutate(gini = ifelse(is.na(gini), "sin datos", gini))
+```
+
+Para pasar de un caracter a un NA primero guardamos la variable generada en un data frame auxiliar. 
+```{r}
+aux <- materna %>% select(gini) %>% mutate(gini = ifelse(is.na(gini), "sin datos", gini))
+head(aux)
+```
+
+Una vez guardada con la instrucción `na_if` colocamos la variable y el tipo de codificación que deseamos pasar a NA.
+```{r}
+aux %>% mutate(gini = na_if(gini, "sin datos"))
+```
+
+Para eliminar todos los datos faltantes solo concatamos la instrucción `na.omit`.
+```{r}
+materna <- materna %>% na.omit() 
+View(materna)
+```
+
+### Agrupación de datos
+
+Para realizar la agrupación de variables guardaremos tanto la variable categórica y la recodificación de la variable `aborto`.
+```{r}
+materna <-materna %>% mutate(desarrollo = case_when(
+  idh <= q1 ~ "Bajo",
+  idh <= q3 ~ "Medio",
+  idh > q3 ~ "Alto" )) %>% 
+  mutate(aborto = recode(aborto, "1" = "Con aborto", "0" = "Sin aborto")) 
+```
+
+Para realizar agrupaciones utilizamos `group_by` sobre la variable seleccionada. Esta variable suele ser una categoría o una variable de tipo caracter, sin embargo puede ser aplicada a variables enteras. Como tal esta instrucción no genera una salida. Una vez agrupado concatenamos una instrucción como `count` para contar los objetos agrupados.
+```{r}
+materna %>% group_by(aborto) %>% count()
+```
+
+O con `summarise` es posible calcular estadísticas de interés por cada grupo.
+```{r}
+materna %>% group_by(aborto) %>% summarise( media = mean(mortality))
+```
+
+Podemos fijar más de una estadística por grupo.
+```{r}
+materna %>% group_by(aborto) %>% summarise(media = mean(mortality),
+                                           sd = sd(mortality),
+                                           minimo = min(mortality),
+                                           maximo = max(mortality))
+```
+
+Aquí otro ejemplo.
+```{r}
+materna %>% group_by(desarrollo) %>% summarise(media = mean(mortality),
+                                           sd = sd(mortality),
+                                           minimo = min(mortality),
+                                           maximo = max(mortality))
+```
+
+### Reordenar factores
+
+En R, en el momento de visualizar una variable categórica, los factores suelen estar ordenados en orden alfabética, lo cual en la mayoría de los casos es incorrecto. Realicemos un gráfico simple para ilustrar este problema.
+
+```{r}
+ggplot2::ggplot(data = materna, aes(x = desarrollo)) +
+  geom_bar()
+```
+
+Como se observa los factores están en orden alfabético. Para reordenar el factor utilizamos la instrucción `factor` y `levels`, donde se especifica la orden del factor. 
+
+```{r}
+materna <- materna %>% mutate(desarrollo = factor(desarrollo, levels = c("Bajo", "Medio", "Alto")))
+```
+
+```{r}
+ggplot2::ggplot(data = materna, aes(x = desarrollo)) +
+  geom_bar()
+```
+
+### Alargamiento- compactación
+Dentro de la libreŕia `tidyr` existen funciones para alargar o compactar una base de datos, esto puede ser conveniete para algunos tipos de gráfico en R. con la función `spread` permite alargar una base de datos. En `key` se asigna una categoría existente y en `value` una variable cuantitativa de interes. Para este ejemplo guardemos esto en una base auxiliar.
+```{r}
+library(tidyr)
+aux = materna  %>% spread(key = aborto, value = mortality)
+#que variables contiene
+names(aux)
+```
+
+Como se observa ambas categorías que se encuentran en `aborto`, es decir `Con aborto` y `Sin aborto` ahora son columnas de la base de datos. Ahora mostramos las variables generadas. 
+
+```{r}
+aux %>% select("Con aborto", "Sin aborto")
+```
+
+Con la función `gather` hacemos la función inversa. Seleccionamos una nueva variable `key` y una nueva variable `value`, de igual manera se agregan las variables a compactar.
+```{r}
+#key = nombre del factor, "value = la nueva variable cuantitativa"
+aux %>% gather(key = "aborto2", value = "mortalidad", "Con aborto", "Sin aborto")
+names(aux) %>% names()
+```
+
+Otra forma de hacerlo es dando la secuencia de columnas sin especificar los nombres de las columnas.
+```{r}
+#key = nombre del factor, "value = la nueva variable cuantitativa"
+aux %>% 
+  gather(key = "aborto2", value = "mortalidad", 9:10) %>% names() 
+```
+
+```{r}
+aux %>% 
+  gather(key = "aborto2", value = "mortalidad", 9:10) %>% 
+  select(Country, mortalidad, aborto2)
+```
+
+```{r}
+materna %>% select(Country, mortality, aborto)
+```
+
+```{r}
+aux %>% 
+  gather(key = "aborto2", value = "mortalidad", 9:10) %>% 
+  select(Country, mortalidad, aborto2) %>% na.omit()
+```
+
+```{r}
+aux %>% 
+  gather(key = "aborto2", value = "mortalidad", 9:10) %>% 
+  select(Country, mortalidad, aborto2) %>% na.omit() %>% 
+  filter(Country == "Argentina")
+```
